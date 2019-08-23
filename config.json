@@ -1,0 +1,23 @@
+{
+	"name": "Easy Edit",
+	"namespace": "UIOWA\\EasyEdit",
+	"description": "Provides a clean, customizable, and easy to edit view of project data.",
+	"documentation": "README.md",
+
+	"authors": [
+		{
+			"name": "Izzy Neuhaus",
+			"email": "isabelle-neuhaus@uiowa.edu",
+			"institution": "University of Iowa"
+		}
+	],
+
+	"links": {
+		"project": [
+			{
+				"name": "Easy Edit",
+				"url": "index.php"
+			}
+		]
+	}
+}
