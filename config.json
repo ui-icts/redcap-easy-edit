@@ -19,5 +19,27 @@
 				"url": "index.php"
 			}
 		]
-	}
+	},
+	"project-settings": [
+		{
+			"key": "comment-buttons-enabled",
+			"name": "Show 'View Field Comment Log' buttons",
+			"type": "checkbox"
+		},
+		{
+			"key": "copy-buttons-enabled",
+			"name": "Show 'Copy to clipboard' buttons",
+			"type": "checkbox"
+		},
+		{
+			"key": "download-buttons-enabled",
+			"name": "Show 'Download' button",
+			"type": "checkbox"
+		},
+		{
+			"key": "history-buttons-enabled",
+			"name": "Show 'View Data History Log' button",
+			"type": "checkbox"
+		}
+	]
 }

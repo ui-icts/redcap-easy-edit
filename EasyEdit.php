@@ -1,6 +1,8 @@
 <?php
 namespace UIOWA\EasyEdit;
 
+require_once APP_PATH_DOCROOT . 'ProjectGeneral/form_renderer_functions.php';
+
 class EasyEdit extends \ExternalModules\AbstractExternalModule {
 
     public function includeJsAndCss() {
@@ -11,10 +13,15 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 
         <script src="<?= $this->getUrl("EasyEdit.js") ?>"></script>
         <link href="<?= $this->getUrl("styles.css") ?>" rel="stylesheet" type="text/css"/>
+
+        <script src="https://unpkg.com/docx@4.0.0/build/index.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/1.3.8/FileSaver.js"></script>
         <?php
     }
 
     public function initializeVariables() {
+        initFileUploadPopup();
+
         $pid = $_GET['pid'];
 
         $sql = "SELECT event_id FROM redcap_data WHERE project_id = $pid LIMIT 1";
@@ -94,6 +101,35 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             $selectedRecord = array_key_first($redcapData);
         }
 
+        $commentCounts = array();
+
+        // todo still need to get counts here
+        if ($this->getProjectSetting('comment-buttons-enabled')) {
+            $repeatLookup = array();
+            foreach ($repeatingForms as $form) {
+                array_push($repeatLookup, $form['form_name']);
+            }
+
+            $sql = "select field_name, instance
+                    from redcap_data_quality_resolutions as rdqr
+                    left join redcap_data_quality_status rdqs on rdqr.status_id = rdqs.status_id
+                    where project_id = $pid and record = $selectedRecord";
+            $result = db_query($sql);
+
+            while ($row = db_fetch_assoc($result)) {
+                $formattedFieldName = '';
+
+                if ($row['instance'] > 1) {
+                    $formattedFieldName = $row['field_name'] . '__' . $row['instance'];
+                }
+                else {
+                    $formattedFieldName = $row['field_name'];
+                }
+
+                $commentCounts[$formattedFieldName]++;
+            }
+        }
+
         $jsObject = array(
             'projectTitle' => \REDCap::getProjectTitle(),
             'instruments' => $instruments,
@@ -103,14 +139,26 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             'formRights' => $formRights,
             'redcapData' => $redcapData,
             'recordLabel' => $recordLabel,
+            'projectId' => PROJECT_ID,
             'eventId' => $eventId,
             'selectedRecordId' => $selectedRecord,
-            'requestUrl' => $this->getUrl('requestHandler.php')
+            'requestUrl' => $this->getUrl('requestHandler.php'),
+            'commentCounts' => $commentCounts,
+            'lastRequestData' => array(),
+            'loggedInUser' => USERID,
+            'config' => array(
+                'commentButtons' => $this->getProjectSetting('comment-buttons-enabled'),
+                'copyButtons' => $this->getProjectSetting('copy-buttons-enabled'),
+                'downloadButtons' => $this->getProjectSetting('download-buttons-enabled'),
+                'historyButtons' => $this->getProjectSetting('history-buttons-enabled')
+            )
+//            'logicTesterExample' => \LogicTester::apply('[core] = 2', $redcapData[$selectedRecord]),
+//            'jsExample' => (new \Calculate)->exportJS()
         )
 
         ?>
         <script>
-            var UIOWA_EasyEdit = <?= json_encode($jsObject) ?>;
+            UIOWA_EasyEdit = Object.assign(UIOWA_EasyEdit, <?= json_encode($jsObject) ?>);
         </script>
         <?php
     }
@@ -185,5 +233,79 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
         }
 
         return $recordData;
+    }
+
+    public function getFieldComments($pid, $selectedRecord, $field, $instance) {
+        $sql = "select ts, username, comment from redcap_data_quality_resolutions as rdqr
+                left join redcap_data_quality_status rdqs on rdqr.status_id = rdqs.status_id
+                left join redcap_user_information rui on rdqr.user_id = rui.ui_id
+                where project_id = $pid and record = $selectedRecord and field_name = '$field' and instance = $instance
+                order by ts";
+
+        $result = db_query($sql);
+        $comments = array();
+
+        while ($row = db_fetch_assoc($result)) {
+            array_push($comments, $row);
+        }
+
+        array_push($comments, array(
+                'ts' => NOW,
+                'username' => USERID,
+                'comment' => ''
+        ));
+
+        return json_encode($comments);
+    }
+
+    public function submitFieldComment($record, $field, $event_id, $instance, $comment) {
+//        $record = 1;
+//        $field = 'core';
+//        $event_id = 40;
+//        $instance = 1;
+
+        $sql = "
+            insert into redcap_data_quality_status (
+                non_rule,
+                project_id,
+                record,
+                event_id,
+                field_name,
+                instance
+            ) values (
+                1,
+                ".PROJECT_ID.",
+                '".db_escape($record)."',
+                '".db_escape($event_id)."',
+                ".checkNull($field).",
+                '".db_escape($instance)."'
+            )
+			on duplicate key update query_status = null, status_id = LAST_INSERT_ID(status_id)";
+
+        if (db_query($sql)) {
+            // Get cleaner_id
+            $status_id = db_insert_id();
+            // Get current user's ui_id
+            $userInitiator = \User::getUserInfo(USERID);
+            // Add new row to data_resolution_log
+            $sql = "insert into redcap_data_quality_resolutions (
+                status_id,
+                ts,
+                user_id,
+                response_requested,
+                comment
+            ) values (
+                $status_id,
+                '".NOW."',
+                ".checkNull($userInitiator['ui_id']).",
+				0,
+				".checkNull(trim(label_decode($comment)))."
+            )";
+
+            return $sql;
+        }
+        else {
+            return ('something went wrong');
+        }
     }
 }

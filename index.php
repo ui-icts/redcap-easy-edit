@@ -14,47 +14,56 @@ $module->initializeVariables();
         :id="'heading_' + name + (index ? repeatSuffix(index) : '')"
         :data-target="'#collapse_' + name + (index ? repeatSuffix(index) : '')"
         :class="{
-            'incomplete': complete == 0,
-            'unverified': complete == 1,
-            'complete': complete == 2
+            'incomplete': (index ? complete : getOverallStatus(name)) === '0',
+            'unverified': (index ? complete : getOverallStatus(name)) === '1',
+            'complete': (index ? complete : getOverallStatus(name)) === '2',
+            'mixed': (index ? complete : getOverallStatus(name)) === '3'
         }"
         data-toggle="collapse"
         style="display: table"
     >
-        <h5 class="mb-0" style="float: left;">
+        <div style="display: table-cell">
+            <h5 class="mb-0" style="float: left; vertical-align: middle">
             <span
-                class="accordion-header"
-                aria-expanded="true"
-                :aria-controls="'collapse_' + name"
-                style="display: table-cell; vertical-align: middle"
+                    class="accordion-header"
+                    aria-expanded="true"
+                    :aria-controls="'collapse_' + name"
+                    style="display: table-cell; vertical-align: middle"
             >
                 {{ formatText(label, record) }}
                 <span
-                    v-if="isRepeatingForm(name) && !index"
-                    class="badge"
-                    :class="{
-                        'badge-light': getOverallStatus(name) == null,
-                        'badge-danger': getOverallStatus(name) == 0,
-                        'badge-warning': getOverallStatus(name) == 1,
-                        'badge-success': getOverallStatus(name) == 2,
-                        'badge-primary': getOverallStatus(name) == 3
+                        v-if="isRepeatingForm(name) && !index"
+                        class="badge"
+                        :class="{
+                        'badge-secondary': getOverallStatus(name) === '',
+                        'badge-danger': getOverallStatus(name) === '0',
+                        'badge-warning': getOverallStatus(name) === '1',
+                        'badge-success': getOverallStatus(name) === '2',
+                        'badge-primary': getOverallStatus(name) === '3'
                     }"
                 >
                     {{ getRepeatInstanceCount(name) }}
                 </span>
             </span>
-        </h5>
-<!--            <div class="no-collapse">-->
+            </h5>
+            <div class="no-collapse" style="float: right">
 <!--                <button class="btn btn-primary save-button" style="float: right">-->
 <!--                    <i class="fas fa-save"></i>-->
 <!--                </button>-->
-<!--            </div>-->
+                <button class="btn btn-primary edit-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                    <i class="fas fa-edit fa-fw"></i>
+                </button>
+                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                    <i class="fas fa-times fa-fw"></i>
+                </button>
+            </div>
+        </div>
     </div>
 </script>
 
 <script type="text/x-template" id="cardCollapse">
-    <div :id="'collapse_' + name + (index ? repeatSuffix(index) : '')" class="collapse" :aria-labelledby="'heading_' + name" :data-parent="'#accordion' + (index ? '_' + name : '')">
-        <div class="card-body">
+    <div :id="'collapse_' + name + (index ? repeatSuffix(index) : '')" class="collapse" :aria-labelledby="'heading_' + name">
+        <div class="card-body redcap-form-content" :data-edit="name + (index ? repeatSuffix(index) : '')">
             <div v-for="field in fields">
                 <div v-if="field == name + '_complete'">
                     <div class="section-header border rounded">
@@ -69,6 +78,7 @@ $module->initializeVariables();
                                 v-model="record[name + '_complete']"
                                 class="form-control"
                                 type="select"
+                                disabled="disabled"
                             >
                                 <option value="0">Incomplete</option>
                                 <option value="1">Unverified</option>
@@ -87,17 +97,21 @@ $module->initializeVariables();
                     <div v-else class="form-inline field border rounded">
                         <h5 v-html="formatText(dictionary[field]['field_label'], record)" class="field-label"></h5>
                         <div class="field-buttons" v-if="field !== 'record_id' && field !== name + '_complete'">
-                            <button class="btn btn-primary edit-button" :data-edit="field + repeatSuffix(index)" v-if="getFormRights(name) != 2">
-                                <i class="fas fa-edit fa-fw"></i>
-                            </button>
-                            <button v-if="dictionary[field]['field_type'] == 'dropdown'" class="btn btn-secondary copy-button" :data-clipboard-text="choiceToLabel(record[field], field)">
+                            <button v-if="config['copyButtons']" class="btn btn-secondary copy-button" :data-clipboard-target="dictionary[field]['field_type'] == 'dropdown' ? choiceToLabel(record[field], field) : '#' + 'edit-' + field + repeatSuffix(index)">
                                 <i class="far fa-clipboard fa-fw"></i>
                             </button>
-                            <button v-else class="btn btn-secondary copy-button" :data-clipboard-target="'#' + 'edit-' + field + repeatSuffix(index)">
-                                <i class="far fa-clipboard fa-fw"></i>
+                            <button v-if="dictionary[field]['field_type'] == 'notes' && config['downloadButtons']" class="btn btn-success download-button" :data-edit="field + repeatSuffix(index)">
+                                <i class="fa fa-file-download fa-fw"></i>
                             </button>
-                            <button v-if="dictionary[field]['field_note'] !== ''" class="btn btn-info" :data-edit="field + repeatSuffix(index)" data-toggle="popover" data-container="body" :data-content="dictionary[field]['field_note']" data-placement="top">
-                                <i class="fas fa-question fa-fw"></i>
+<!--                            <button v-if="dictionary[field]['field_note'] !== ''" class="btn btn-info" :data-edit="field + repeatSuffix(index)" data-toggle="popover" data-container="body" :data-content="dictionary[field]['field_note']" data-placement="top">-->
+<!--                                <i class="fas fa-question fa-fw"></i>-->
+<!--                            </button>-->
+                            <button v-if="config['historyButtons']" class="btn btn-warning history-button" :data-edit="field + repeatSuffix(index)" :data-instance="index">
+                                <i class="fas fa-history fa-fw"></i>
+                            </button>
+                            <button class="btn btn-primary show-comments" :data-edit="field + repeatSuffix(index)" :data-instance="index" v-if="getFormRights(name) != 2">
+                                <i class="far fa-comment fa-fw"></i>
+                                <span class="badge badge-light comment-count"></span>
                             </button>
                         </div>
                         <div v-if="dictionary[field]['field_type'] == 'text'" class="field-content">
@@ -106,6 +120,7 @@ $module->initializeVariables();
                                     :data-name="field + repeatSuffix(index)"
                                     v-model="record[field]"
                                     class="form-control"
+                                    :class="{locked: field == 'record_id'}"
                                     type="text"
                                     readonly="readonly"
                                     style="width: 100%"
@@ -180,14 +195,28 @@ $module->initializeVariables();
                         </div>
                         <div v-else-if="dictionary[field]['field_type'] == 'file'" class="field-content">
                             <div :id="'edit-' + field + repeatSuffix(index)">
-                                <form method="post" enctype="multipart/form-data">
-                                    <input type="file" name="file" multiple />
-                                    <input type="submit" value="Upload File" name="submit" />
-                                </form>
+                                <input type="hidden" name="test" value="">
+                                <a target="_blank" class="filedownloadlink" name="test" tabindex="0" href="/redcap/redcap_v9.3.0/DataEntry/file_download.php?pid=13&amp;doc_id_hash=1f0c8c24527ec7bbf6bc8d1615fe85d2051e2a2c&amp;id=10&amp;s=&amp;record=1&amp;page=reporting&amp;event_id=40&amp;field_name=test&amp;instance=1" onclick="return appendRespHash('test');" id="test-link" style="text-align: right; font-weight: normal; display: none; text-decoration: underline; margin: 0px 10px; position: relative;">NLP_communication (1).docx (0.03 MB)</a>
+                                <div style="font-weight:normal;margin:10px 5px 0 0;position:relative;text-align:right;" id="test-linknew">
+                                    <a href="javascript:;" class="fileuploadlink" onclick="filePopUp('test',0,0);return false;">
+                                        <i class="fas fa-upload mr-1 fs12"></i>Upload file
+                                    </a>
+                                </div>
                             </div>
+                        </div>
+                        <div v-if="dictionary[field]['field_note'] !== ''" class="note" style="margin: ">
+                            {{ dictionary[field]['field_note'] }}
                         </div>
                     </div>
                 </div>
+            </div>
+            <div style="text-align: center">
+                <button class="btn btn-primary edit-button edit-collapse" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                    <i class="fas fa-edit fa-fw"></i><span> Edit</span>
+                </button>
+                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                    <i class="fas fa-times fa-fw"></i><span> Discard Changes</span>
+                </button>
             </div>
         </div>
     </div>
@@ -205,7 +234,7 @@ $module->initializeVariables();
 
         <div style="text-align: center">
             <label for="recordSelect">Viewing Record</label>
-            <select v-if="Object.keys(redcapData).length > 1" id="recordSelect" class="form-control" v-model="selectedRecordId">
+            <select v-if="Object.keys(redcapData).length > 1" id="recordSelect" class="form-control btn-light-danger" v-model="selectedRecordId">
                 <option v-for="(recordData, recordId) in redcapData" :value="recordId">
                     {{ recordId + ' - ' + choiceToLabel(redcapData[recordId][eventId][recordLabel], recordLabel) }}
                 </option>
@@ -215,7 +244,19 @@ $module->initializeVariables();
             </span>
         </div>
         <br/>
+        <div class="progress">
+            <div class="progress-bar bg-success" role="progressbar" :style="'width:' + getProgressPercentage('complete')">
+            </div>
+            <div class="progress-bar bg-warning" role="progressbar" :style="'width:' + getProgressPercentage('unverified')">
+            </div>
+            <div class="progress-bar bg-danger" role="progressbar" :style="'width:' + getProgressPercentage('incomplete')">
+            </div>
+        </div>
         <br/>
+        <div style="text-align: center; padding: 5px;">
+            <button id="expandAll" class="btn btn-success">Expand All</button>
+            <button id="collapseAll" class="btn btn-primary">Collapse All</button>
+        </div>
         <div id="accordion">
             <div class="card" v-for="(formLabel, formName, index) in instruments" v-if="getFormRights(formName) != 0">
                 <card-header
@@ -228,7 +269,6 @@ $module->initializeVariables();
                     :id="'collapse_' + formName"
                     class="collapse"
                     :aria-labelledby="'heading_' + formName"
-                    data-parent="#accordion"
                 >
                     <div class="card-body">
                         <div
@@ -253,6 +293,7 @@ $module->initializeVariables();
                                     :label="formLabel"
                                     :fields="fields[formName]"
                                     :dictionary="dataDictionary"
+                                    :config="config"
                                 ></card-collapse>
                             </div>
                             <div style="float: right; margin: 20px;">
@@ -270,7 +311,78 @@ $module->initializeVariables();
                     :label="formLabel"
                     :fields="fields[formName]"
                     :dictionary="dataDictionary"
+                    :config="config"
                 ></card-collapse>
+            </div>
+        </div>
+        <div id="commentsModal" class="modal" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">{{ 'Viewing comments for "' + $data.selectedField + '"' }}</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <table class="table">
+                            <thead>
+                            <tr>
+                                <th scope="col">Timestamp</th>
+                                <th scope="col">Username</th>
+                                <th scope="col">Comment</th>
+                            </tr>
+                            </thead>
+                            <tbody class="comment-table">
+                                <tr v-for="(data, index) in lastRequestData">
+                                    <td>{{ data['ts'] }}</td>
+                                    <td>{{ data['username'] }}</td>
+                                    <td v-if="index === lastRequestData.length - 1" class="comment-cell">
+                                        <textarea id="userComment" style="width: 100%"></textarea>
+                                    </td>
+                                    <td v-else class="comment-cell">{{ data['comment'] }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" id="submit-comment" class="btn btn-primary" data-dismiss="modal">Comment</button>
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="historyModal" class="modal" tabindex="-1" role="dialog">
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">{{ 'Viewing history for "' + $data.selectedField + '"' }}</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <table class="table">
+                            <thead>
+                            <tr>
+                                <th scope="col">Timestamp</th>
+                                <th scope="col">Username</th>
+                                <th scope="col">Data Changes Made</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr v-for="data in lastRequestData">
+                                <td>{{ data['ts'] }}</td>
+                                <td>{{ data['user'] }}</td>
+                                <td>{{ data['value'] }}</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
