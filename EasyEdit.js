@@ -1,5 +1,13 @@
 var app;
 
+window.closeModal = function(){
+    if (UIOWA_EasyEdit.surveyOpen) {
+        // $('#surveyModal').find('iframe').attr('src', '');
+        $('#surveyModal').modal('hide');
+        UIOWA_EasyEdit.surveyOpen = false;
+    }
+};
+
 $(document).ready(function() {
     var mixin = {
         methods: {
@@ -58,7 +66,7 @@ $(document).ready(function() {
                             pipedValue = pipedList.join(', ')
                         }
                         else {
-                            pipedValue = self.choiceToLabel(pipedValue, pipedField);
+                            // pipedValue = self.choiceToLabel(pipedValue, pipedField);
                         }
 
                         text = text.replace(value, pipedValue);
@@ -139,50 +147,6 @@ $(document).ready(function() {
 
                 return overallStatus;
             },
-            addRepeatInstance: function (form) {
-                var data = this.$data;
-                var repeatInstances = data.redcapData[data.selectedRecordId]['repeat_instances'][data.eventId][form];
-
-                if (!repeatInstances) {
-                    repeatInstances = {};
-                }
-
-                var newInstanceIndex = Math.max(...Object.keys(repeatInstances)) + 1;
-                var newInstance = {};
-
-                // todo must not copy non-data fields
-                $.each(data.dataDictionary, function (index, field) {
-
-                    if (field['field_name'] !== undefined && field['field_type'] !== undefined) {
-                        if (field['field_type'] === 'checkbox') {
-                            var choiceKeys = Object.keys(field['select_choices_or_calculations']);
-                            newInstance[field['field_name']] = {};
-
-                            $.each(choiceKeys, function (index, value) {
-                                newInstance[field['field_name']][value] = '0';
-                            })
-                        }
-                        else if (field['field_type'] !== 'descriptive') {
-                            newInstance[field['field_name']] = '';
-                        }
-                    }
-                });
-
-                newInstance[form + '_complete'] = '0';
-
-                if (newInstanceIndex === 1) {
-                    Vue.set(data.redcapData[data.selectedRecordId]['repeat_instances'][data.eventId], form, {
-                        1: newInstance
-                    });
-                }
-                else {
-                    Vue.set(repeatInstances, newInstanceIndex, newInstance);
-                }
-
-                this.$forceUpdate();
-
-                UIOWA_EasyEdit.lastAddedInstance = form + '__' + newInstanceIndex;
-            },
             getProgressPercentage: function (type) {
                 var regex = new RegExp('_complete$');
                 var data = this.$data.redcapData[UIOWA_EasyEdit.selectedRecordId];
@@ -228,34 +192,6 @@ $(document).ready(function() {
                     statuses[status] += 1;
                     statuses['total'] += 1;
                 }
-            },
-            getFieldComments: function (field) {
-                if (!field) {
-                    field = UIOWA_EasyEdit.selectedField;
-                }
-                var comments = UIOWA_EasyEdit.fieldComments;
-
-                if (field in comments) {
-                    return UIOWA_EasyEdit.fieldComments[field]
-                }
-                else {
-                    return {};
-                }
-            },
-            getFieldHistory: function (field) {
-                if (!field) {
-                    field = UIOWA_EasyEdit.selectedField;
-                }
-
-
-            },
-            getSelectedField: function () {
-                if (UIOWA_EasyEdit.selectedField) {
-                    return UIOWA_EasyEdit.dataDictionary[UIOWA_EasyEdit.selectedField]['field_label'];
-                }
-                else {
-                    return "No field selected";
-                }
             }
         }
     };
@@ -266,7 +202,8 @@ $(document).ready(function() {
             'name',
             'label',
             'record',
-            'complete'
+            'complete',
+            'survey'
         ],
         template: '#cardHeader',
         mixins: [mixin]
@@ -312,28 +249,28 @@ $(document).ready(function() {
         data: UIOWA_EasyEdit,
         mixins: [mixin],
         updated: function() {
-            UIOWA_EasyEdit.refreshEditButtons();
-
-            if (UIOWA_EasyEdit.lastAddedInstance) {
-                $('#collapse_' + UIOWA_EasyEdit.lastAddedInstance).collapse('show');
-
-                UIOWA_EasyEdit.toggleEdit(UIOWA_EasyEdit.lastAddedInstance);
-
-                delete UIOWA_EasyEdit.lastAddedInstance;
-            }
+            // UIOWA_EasyEdit.refreshEditButtons();
+            //
+            // if (UIOWA_EasyEdit.lastAddedInstance) {
+            //     var dataEdit = UIOWA_EasyEdit.lastAddedInstance['form'] + '__' + UIOWA_EasyEdit.lastAddedInstance['index'];
+            //
+            //     $('#collapse_' + dataEdit).collapse('show');
+            //
+            //     UIOWA_EasyEdit.toggleEdit(UIOWA_EasyEdit.lastAddedInstance);
+            // }
         },
         watch: {
             redcapData: {
                 deep: true,
                 handler() {
-                    $('#saveMsg')
-                        .removeClass(function (index, className) {
-                            return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
-                        })
-                        .addClass('badge-primary')
-                        .html('<i class="fas fa-exclamation-circle"></i> Unsaved changes');
-
-                    UIOWA_EasyEdit.promptBeforeDiscarding = true;
+                    // $('#saveMsg')
+                    //     .removeClass(function (index, className) {
+                    //         return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
+                    //     })
+                    //     .addClass('badge-primary')
+                    //     .html('<i class="fas fa-exclamation-circle"></i> Unsaved changes');
+                    //
+                    // UIOWA_EasyEdit.promptBeforeDiscarding = true;
                 }
             }
         }
@@ -354,6 +291,187 @@ $(document).ready(function() {
     //     editButton.attr('data-clipboard-text', $('option:selected', select).text());
     // });
 
+    // get comment counts to display on buttons
+    $.each(UIOWA_EasyEdit.commentCounts, function (key, count) {
+        var $commentButton = $('.show-comments[data-edit=' + key + ']');
+
+        if ($commentButton.length === 0) {
+            $commentButton = $('.show-comments[data-edit=' + key + '__1]');
+        }
+
+        $commentButton.find('.comment-count').html(count);
+    });
+
+    $('.edit-button').each(function () {
+        var form = $(this).data('edit');
+
+        // disable if no survey
+        if (UIOWA_EasyEdit.formMetadata[form]['survey'] === null) {
+            // $(this).prop('disabled', 'disabled');
+            $(this).remove();
+        }
+    });
+
+    $('.edit-button').click(function (e) {
+        e.stopPropagation();
+
+        // disable edit buttons and add instance buttons
+        $('.edit-button').prop('disabled', 'disabled');
+
+        // show loading icon while survey loads
+        $(this)
+            .find('i')
+            .removeClass('fa-edit')
+            .addClass('fa-spinner fa-spin');
+
+        var form = $(this).data('edit');
+        var repeatIndex = $(this).data('repeat-index');
+
+        var surveyLink = UIOWA_EasyEdit.formMetadata[form]['survey'];
+
+        if ($(this).hasClass('add-new-instance') && typeof surveyLink === 'object') {
+            surveyLink = surveyLink['new'];
+        }
+        if (repeatIndex) {
+            surveyLink = surveyLink[repeatIndex];
+        }
+
+        UIOWA_EasyEdit.surveyOpen = false;
+
+        // open survey in modal
+        var surveyIframe = $('#surveyModal').find('iframe');
+
+        // send username to survey so changes are logged properly
+        $('body').append('<form action="'+surveyLink+'" method="post" target="surveyIframe" id="postToIframe"></form>');
+        $('#postToIframe')
+            .append('<input type="hidden" name="username" value="'+UIOWA_EasyEdit.loggedInUser+'" />')
+            .submit()
+            .remove();
+
+        surveyIframe.on('load', () => {
+            // remove loading icon
+            $(this)
+                .find('i')
+                .removeClass('fa-spinner fa-spin')
+                .addClass('fa-edit');
+
+            if (!UIOWA_EasyEdit.surveyOpen) {
+                $('#surveyModal').modal({backdrop: 'static', keyboard: false});
+                UIOWA_EasyEdit.surveyOpen = true;
+            }
+        });
+
+        // open survey
+        // window.location.href = surveyLink + '&edit=' + UIOWA_EasyEdit.selectedRecordId;
+    });
+
+    $('.cancel-button').on('click', function (e) {
+        var closeSurvey = function () {
+            // enable edit buttons and add instance buttons until saved
+            $('.edit-button').prop('disabled', '');
+
+            $('#surveyModal').modal('hide');
+        };
+
+        if (UIOWA_EasyEdit.newAlertsSupported) {
+            Swal.fire({
+                title: 'Cancel Editing?',
+                text: "Changes will NOT be saved.",
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonColor: '#d33',
+                cancelButtonColor: '#3085d6',
+                confirmButtonText: 'Discard Changes',
+                cancelButtonText: 'Keep Editing'
+            }).then((result) => {
+                if (result.value) {
+                    closeSurvey();
+                }
+            })
+        }
+        else {
+            var confirmed = confirm('Are you sure you want to cancel editing? Changes will NOT be saved.');
+
+            if (confirmed) {
+                closeSurvey();
+            }
+        }
+
+        // UIOWA_EasyEdit.toggleEdit($(this).data('edit'), false);
+    });
+
+    $('.show-comments').on('click', function (e) {
+        UIOWA_EasyEdit.selectedField = $(this).data('edit');
+
+        var instance = $(this).data('instance') || 1;
+
+        $.ajax({
+            method: 'POST',
+            url: UIOWA_EasyEdit.requestUrl + '&type=getComments',
+            data: {
+                pid: UIOWA_EasyEdit.projectId,
+                record_id: UIOWA_EasyEdit.selectedRecordId,
+                field: UIOWA_EasyEdit.selectedField.split('__')[0],
+                instance: instance,
+            }
+        })
+            .done(function(result) {
+                UIOWA_EasyEdit.lastRequestData = JSON.parse(result);
+
+                $.each(UIOWA_EasyEdit.lastRequestData, function () {
+
+                    this.comment = $.text(this.comment);
+                });
+
+                if (UIOWA_EasyEdit.lastRequestData.length > UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField]) {
+                    UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField] = UIOWA_EasyEdit.lastRequestData.length;
+                }
+
+                app.$forceUpdate();
+
+                $('#commentsModal').modal('show');
+            })
+    });
+
+    $('.download-button').on('click', function (e) {
+        var fieldName = $(this).data('edit');
+        var $fieldContent = $('#edit-' + fieldName);
+
+        UIOWA_EasyEdit.generateWordDoc($fieldContent.val(), fieldName);
+    });
+
+    $('.history-button').on('click', function (e) {
+        UIOWA_EasyEdit.selectedField = $(this).data('edit');
+
+        var instance = $(this).data('instance');
+
+        $.ajax({
+            method: 'POST',
+            url: UIOWA_EasyEdit.requestUrl + '&type=getDataHistory',
+            data: {
+                record_id: UIOWA_EasyEdit.selectedRecordId,
+                event_id: UIOWA_EasyEdit.eventId,
+                field: UIOWA_EasyEdit.selectedField.split('__')[0],
+                instance: instance
+            }
+        })
+            .done(function (result) {
+                UIOWA_EasyEdit.lastRequestData = JSON.parse(result);
+
+                app.$forceUpdate();
+                $('#historyModal').modal('show');
+            })
+    });
+
+    $('.change-status').click(function () {
+        $('.form-status')
+            .removeClass (function (index, className) {
+                return (className.match (/(^|\s)btn-\S+/g) || []).join(' ');
+            })
+            .addClass($(this).data('class'))
+            .html($(this).data('status'));
+    });
+
     // initial update of edit buttons for radio/checkboxes
     $('.field-content').each(function (index, element) {
         var input = $(element).find('input').first();
@@ -373,12 +491,6 @@ $(document).ready(function() {
         UIOWA_EasyEdit.updateClipboardButton($(this));
     });
 
-    $('.add-repeat-instance').click(function () {
-        var form = $(this).attr('data-add');
-
-        app.addRepeatInstance(form);
-    });
-
     var copyButtonClass = '.copy-button';
 
     $(copyButtonClass).popover({
@@ -396,20 +508,6 @@ $(document).ready(function() {
     // clipboard.on('error', function(e) {
     //     setTooltip('Failed!');
     //     hideTooltip();
-    // });
-
-    // $('.collapse').on('show.bs.collapse', function(e) {
-    //     var $card = $(this).closest('.card');
-    //     var $open = $($(this).data('parent')).find('.collapse.show');
-    //
-    //     var additionalOffset = 0;
-    //     if($card.prevAll().filter($open.closest('.card')).length !== 0)
-    //     {
-    //         additionalOffset =  $open.height();
-    //     }
-    //     $('html,body').animate({
-    //         scrollTop: $card.offset().top - additionalOffset
-    //     }, 500);
     // });
 
     $('#submit-comment').click(function () {
@@ -507,109 +605,11 @@ $(document).ready(function() {
     });
 
     UIOWA_EasyEdit.restoreAccordionState();
-    UIOWA_EasyEdit.refreshEditButtons();
 
     app.getProgressPercentage();
 });
 
 var UIOWA_EasyEdit = {
-    refreshEditButtons: function() {
-        // Remove handler from existing elements
-        $('.edit-button').off();
-        $('.cancel-button').off();
-        $('.show-comments').off();
-        $('.download-button').off();
-        $('.history-button').off();
-
-        $.each(UIOWA_EasyEdit.commentCounts, function (key, count) {
-            var $commentButton = $('.comment-button[data-edit=' + key + ']');
-
-            if ($commentButton.length === 0) {
-                $commentButton = $('.comment-button[data-edit=' + key + '__1]');
-            }
-
-            $commentButton.find('.comment-count').html(count);
-        });
-
-        // Re-add event handler for all matching elements
-        $('.edit-button').on('click', function (e) {
-            e.stopPropagation();
-
-            UIOWA_EasyEdit.toggleEdit($(this).data('edit'), true, $(this).hasClass('edit-collapse'));
-        });
-
-        $('.cancel-button').on('click', function (e) {
-            e.stopPropagation();
-
-            if (UIOWA_EasyEdit.promptBeforeDiscarding) {
-                confirm('You have unsaved changes on this form! Are you sure you want to cancel editing and revert?')
-            }
-            UIOWA_EasyEdit.toggleEdit($(this).data('edit'), false);
-        });
-
-        $('.show-comments').on('click', function (e) {
-            UIOWA_EasyEdit.selectedField = $(this).data('edit');
-
-            var instance = $(this).data('instance') || 1;
-
-            $.ajax({
-                method: 'POST',
-                url: UIOWA_EasyEdit.requestUrl + '&type=getComments',
-                data: {
-                    pid: UIOWA_EasyEdit.projectId,
-                    record_id: UIOWA_EasyEdit.selectedRecordId,
-                    field: UIOWA_EasyEdit.selectedField.split('__')[0],
-                    instance: instance,
-                }
-            })
-                .done(function(result) {
-                    UIOWA_EasyEdit.lastRequestData = JSON.parse(result);
-
-                    $.each(UIOWA_EasyEdit.lastRequestData, function () {
-
-                        this.comment = $.text(this.comment);
-                    });
-
-                    if (UIOWA_EasyEdit.lastRequestData.length > UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField]) {
-                        UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField] = UIOWA_EasyEdit.lastRequestData.length;
-                    }
-
-                    app.$forceUpdate();
-
-                    $('#commentsModal').modal('show');
-                })
-        });
-
-        $('.download-button').on('click', function (e) {
-            var fieldName = $(this).data('edit');
-            var $fieldContent = $('#edit-' + fieldName);
-
-            UIOWA_EasyEdit.generateWordDoc($fieldContent.val(), fieldName);
-        });
-
-        $('.history-button').on('click', function (e) {
-            UIOWA_EasyEdit.selectedField = $(this).data('edit');
-
-            var instance = $(this).data('instance');
-
-            $.ajax({
-                method: 'POST',
-                url: UIOWA_EasyEdit.requestUrl + '&type=getDataHistory',
-                data: {
-                    record_id: UIOWA_EasyEdit.selectedRecordId,
-                    event_id: UIOWA_EasyEdit.eventId,
-                    field: UIOWA_EasyEdit.selectedField.split('__')[0],
-                    instance: instance
-                }
-            })
-            .done(function(result) {
-                UIOWA_EasyEdit.lastRequestData = JSON.parse(result);
-
-                app.$forceUpdate();
-                $('#historyModal').modal('show');
-            })
-        })
-    },
     updateClipboardButton: function (fieldInput) {
         var field = fieldInput.attr('data-name');
         var editButton = $("button[data-clipboard-target='#edit-" + field + "']");
@@ -652,183 +652,6 @@ var UIOWA_EasyEdit = {
             saveAs(blob, field + ".docx");
         });
     },
-    toggleEdit: function (dataEdit, saveData, expandNext) {
-        var dataEditSelector = '[data-edit="' + dataEdit + '"]';
-        var $editButtons = $('.edit-button' + dataEditSelector);
-        var $cancelButtons = $('.cancel-button' + dataEditSelector);
-        var $otherEditButtons = $('.edit-button').not(dataEditSelector);
-        var $formContent = $('.redcap-form-content' + dataEditSelector);
-        var $editFields = $formContent.find('.field-content');
-
-        $($editFields).each(function(index, field) {
-            var $field = $(field).find(':first-child');
-            var prop = 'readonly';
-            var locked = $field.hasClass('locked');
-
-            if ($field.is('div')) {
-                prop = 'disabled';
-                $field = $field.find('input');
-            }
-            else if ($field.is('select')) {
-                prop = 'disabled';
-            }
-
-            if (!locked) {
-                $field.prop(prop, !$field.prop(prop));
-            }
-        });
-
-        var $secondaryEditButton = $('.edit-button' + dataEditSelector +'.edit-collapse > span');
-
-        if ($editButtons.find('i').hasClass('fa-edit')) {
-            // show cancel buttons
-            $cancelButtons.show();
-
-            this.promptBeforeDiscarding = false;
-
-            $editButtons
-                .removeClass('btn-primary')
-                .addClass('btn-success')
-                .find('i')
-                .removeClass('fa-edit')
-                .addClass('fa-check');
-
-            var $collapse = $('#collapse_' + dataEdit);
-
-            if (!$collapse.hasClass('show')) {
-                $collapse.collapse('show');
-            }
-
-            // disable other edit and add instance buttons until saved
-            $otherEditButtons.prop('disabled', 'disabled');
-            $('.add-repeat-instance').prop('disabled', 'disabled');
-
-            // update text on secondary save button
-            $secondaryEditButton.html(' Save & Edit Next Form');
-
-            this.redcapDataCache = $.extend(true, {}, this.redcapData);
-        }
-        else {
-            if (saveData) {
-                $editButtons
-                    .prop('disabled', 'disabled')
-                    .find('i')
-                    .removeClass('fa-edit')
-                    .addClass('fa-spinner fa-spin');
-
-                this.saveRedcapData(this.redcapData, $editButtons, dataEdit, expandNext);
-            } else {
-                var recordData = this.redcapData[this.selectedRecordId];
-                var recordDataCache = this.redcapDataCache[this.selectedRecordId];
-
-                if (dataEdit.includes('__')) {
-                    var formName = dataEdit.split('__')[0];
-                    var instanceId = dataEdit.split('__')[1];
-
-                    recordData = recordData['repeat_instances'][this.eventId][formName][instanceId];
-                    recordDataCache = recordDataCache['repeat_instances'][this.eventId][formName][instanceId];
-                }
-                else {
-                    recordData = recordData[this.eventId];
-                    recordDataCache = recordDataCache[this.eventId];
-                }
-
-                $('div[data-edit="' + dataEdit + '"]')
-                    .find('[data-name]')
-                    .each(function(index, field) {
-                        var fieldName = $(field).data('name').split('__')[0];
-
-                        if (!(recordData[fieldName] === recordDataCache[fieldName])) {
-                            recordData[fieldName] = recordDataCache[fieldName];
-                        }
-                    });
-
-                this.resetEditButtons(dataEdit);
-
-                this.redcapDataCache = {};
-
-                $('#saveMsg')
-                    .removeClass(function (index, className) {
-                        return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
-                    })
-                    .addClass('badge-success')
-                    .html('<i class="fas fa-check"></i> All changes saved');
-            }
-        }
-    },
-    saveRedcapData: function (data, $editButtons, dataEdit, expandNext) {
-        var saveMsg = $('#saveMsg');
-
-        saveMsg
-            .removeClass(function (index, className) {
-                return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
-            })
-            .addClass('badge-primary')
-            .html('<i class="fas fa-spinner fa-spin"></i> Saving...');
-
-        $.ajax({
-            url: UIOWA_EasyEdit.requestUrl + '&type=save',
-            type: 'POST',
-            data: JSON.stringify(data),
-            success: function(result) {
-                console.log(result);
-
-                result = JSON.parse(result);
-
-                if (result.errors.length > 0) {
-                    var errors = [];
-                    $.each(result.errors, function (index, item) {
-                        item = item.replace(/['"]+/g, '').split(',');
-
-                        $('#' + item[2]) //todo?
-                    });
-
-                    console.log(errors);
-
-                    saveMsg
-                        .removeClass(function (index, className) {
-                            return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
-                        })
-                        .addClass('badge-danger')
-                        .html('<i class="fas fa-times"></i> Failed to save changes!');
-                }
-                else {
-                    saveMsg
-                        .removeClass(function (index, className) {
-                            return (className.match (/(^|\s)badge-\S+/g) || []).join(' ');
-                        })
-                        .addClass('badge-success')
-                        .html('<i class="fas fa-check"></i> All changes saved');
-                }
-
-                // enable all buttons after save
-                UIOWA_EasyEdit.resetEditButtons(dataEdit);
-
-                $('#collapse_' + dataEdit).collapse('hide');
-
-                if (expandNext) {
-                    UIOWA_EasyEdit.lastDataEdit = dataEdit;
-                }
-            }
-        })
-    },
-    resetEditButtons: function (dataEdit) {
-        // hide cancel buttons
-        $('.cancel-button[data-edit="' + dataEdit + '"]').hide();
-
-        // enable all buttons after save
-        $('.edit-button').prop('disabled', '');
-        $('.add-repeat-instance').prop('disabled', '');
-        $('.edit-button[data-edit="' + dataEdit + '"]')
-            .addClass('btn-primary')
-            .removeClass('btn-success')
-            .find('i')
-            .addClass('fa-edit')
-            .removeClass('fa-spinner fa-spin');
-
-        // update text on secondary save button
-        $('.edit-button.edit-collapse[data-edit="' + dataEdit + '"] > span').html(' Edit');
-    },
     restoreAccordionState: function () {
         UIOWA_EasyEdit.visibleAccordions = JSON.parse(localStorage.getItem('visibleAccordions')) || [];
 
@@ -850,17 +673,3 @@ var UIOWA_EasyEdit = {
         localStorage.setItem('visibleAccordions', JSON.stringify(UIOWA_EasyEdit.visibleAccordions));
     }
 };
-
-// function setTooltip(message) {
-//     $(copyButtonClass).tooltip('hide')
-//         .attr('data-original-title', message)
-//         .tooltip('show');
-// }
-//
-// function hideTooltip() {
-//     setTimeout(function() {
-//         $(copyButtonClass).tooltip('hide');
-//     }, 1000);
-// }
-
-// :class="{show:(index == 2)}"

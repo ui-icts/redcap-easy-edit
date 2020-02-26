@@ -20,6 +20,11 @@
 			}
 		]
 	},
+	"permissions": [
+		"redcap_survey_page",
+		"redcap_survey_complete",
+		"redcap_module_link_check_display"
+	],
 	"project-settings": [
 		{
 			"key": "comment-buttons-enabled",

@@ -5,6 +5,49 @@ require_once APP_PATH_DOCROOT . 'ProjectGeneral/form_renderer_functions.php';
 
 class EasyEdit extends \ExternalModules\AbstractExternalModule {
 
+    public function redcap_survey_page () {
+        $_SESSION['username'] = $_POST['username'];
+
+        ?>
+        <script>
+            // $('button[name="submit-btn-savereturnlater"]').hide();
+
+            $('button[name="submit-btn-savereturnlater"]').click(function() {
+                window.parent.location.reload();
+
+            });
+        </script>
+        <?php
+    }
+
+    public function redcap_survey_complete ($project_id, $record, $instrument, $event_id, $group_id, $survey_hash, $response_id, $repeat_instance) {
+//        if ($_GET['edit'] = 1) { //todo possible conflict?
+//            header('Location: ' . $this->getUrl('index.php?record=' . $_GET['edit']));
+//        }
+
+//        sleep(1);
+        error_log(json_encode($_POST));
+
+//        $data[$instrument . '_complete'] = 1;
+//
+//        if ($this->saveData($project_id, $record, $event_id, $data)) {
+//
+//        }
+        ?>
+        <script>
+            window.parent.location.reload();
+        </script>
+        <?php
+    }
+
+    public function redcap_module_link_check_display($project_id, $link) {
+        if ($_GET['id']) {
+            $link['url'] .= '&record=' . $_GET['id'];
+        }
+
+        return $link;
+    }
+
     public function includeJsAndCss() {
         ?>
         <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
@@ -20,9 +63,14 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
     }
 
     public function initializeVariables() {
-        initFileUploadPopup();
-
         $pid = $_GET['pid'];
+
+        if ($_GET['record']) {
+            $recordId = $_GET['record'];
+        }
+        else {
+            $recordId = $this->getRecordId();
+        }
 
         $sql = "SELECT event_id FROM redcap_data WHERE project_id = $pid LIMIT 1";
         $result = db_query($sql);
@@ -48,11 +96,50 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
         $formattedDataDictionary = array();
 
         $instruments = \REDCap::getInstrumentNames();
-        $fields = array();
 
-        //todo okay we shouldn't add this to the global data dictionary....should be per instrument
+        $redcapData = \REDCap::getData(array(
+            'records' => $recordId,
+            'groups' => $userRights['group_id'],
+            'exportAsLabels' => true
+        ));
+
+        $repeatSurveys = array();
+        $formMetadata = array();
+        $branchingFields = array();
+
+        foreach ($redcapData[$recordId]['repeat_instances'][$eventId] as $formName => $instances) {
+            $surveys = array();
+            $lastRepeatIndex = 1;
+
+            foreach ($instances as $repeatIndex => $data) {
+                $surveys[$repeatIndex] = \REDCap::getSurveyLink($recordId, $formName, $eventId, $repeatIndex);
+
+                $lastRepeatIndex = $repeatIndex;
+            }
+
+            // add one extra survey for "Add New" button
+            $surveys['new'] = \REDCap::getSurveyLink($recordId, $formName, $eventId, $lastRepeatIndex + 1);
+
+            if (!$surveys['new']) {
+                $surveys = null;
+            }
+
+            $repeatSurveys[$formName] = $surveys;
+        }
+
         foreach ($instruments as $uniqueName => $label) {
-            $fields[$uniqueName] = \REDCap::getFieldNames($uniqueName);
+            if (array_key_exists($uniqueName, $repeatSurveys)) {
+                $formSurvey = $repeatSurveys[$uniqueName];
+            }
+            else {
+                $formSurvey = \REDCap::getSurveyLink($recordId, $uniqueName, $eventId);
+            }
+
+            $formMetadata[$uniqueName] = array(
+                'fields' => \REDCap::getFieldNames($uniqueName),
+                'survey' => $formSurvey
+            );
+
 //            $formattedDataDictionary[$uniqueName . '_complete'] = array(
 //                "field_name" => $uniqueName . "_complete",
 //                "field_type" => "status",
@@ -62,7 +149,7 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 //            );
         }
 
-        foreach ($dataDictionary as $value) {
+        foreach ($dataDictionary as $key => $value) {
             if (in_array($value['field_type'], ['dropdown', 'checkbox', 'radio'])) {
                 $value['select_choices_or_calculations'] = $this->getChoiceLabels($value['field_name']);
             }
@@ -75,30 +162,21 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
                 $value['field_type'] = 'radio';
             }
 
+            if ($value['branching_logic'] !== '') {
+                $branchingFields[$key] = $value['branching_logic'];
+            }
+
             $formattedDataDictionary[$value['field_name']] = $value;
         }
 
-        $redcapData = \REDCap::getData(array('groups' => $userRights['group_id']));
-
-        //todo probably add empty 'repeat_instance' arrays to all records here
-//        foreach ($repeatingForms as $key => $value) {
-//            if (!$redcapData[])
-//        }
-
-        if ($_GET['record']) {
-            $selectedRecord = $_GET['record'];
-        }
-        else {
-            if (!function_exists('array_key_first')) {
-                function array_key_first(array $arr) {
-                    foreach($arr as $key => $unused) {
-                        return $key;
-                    }
-                    return NULL;
-                }
+        // remove fields hidden by branching logic
+        foreach ($branchingFields as $field => $logic) {
+            if (array_key_exists($field, $redcapData[$recordId][$eventId])) {
+                $branchingFields[$field] = \LogicTester::apply(
+                    $dataDictionary[$field]['branching_logic'],
+                    $redcapData[$recordId][$eventId]
+                );
             }
-
-            $selectedRecord = array_key_first($redcapData);
         }
 
         $commentCounts = array();
@@ -113,12 +191,10 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             $sql = "select field_name, instance
                     from redcap_data_quality_resolutions as rdqr
                     left join redcap_data_quality_status rdqs on rdqr.status_id = rdqs.status_id
-                    where project_id = $pid and record = $selectedRecord";
+                    where project_id = $pid and record = $recordId";
             $result = db_query($sql);
 
             while ($row = db_fetch_assoc($result)) {
-                $formattedFieldName = '';
-
                 if ($row['instance'] > 1) {
                     $formattedFieldName = $row['field_name'] . '__' . $row['instance'];
                 }
@@ -134,18 +210,21 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             'projectTitle' => \REDCap::getProjectTitle(),
             'instruments' => $instruments,
             'repeatingForms' => $repeatingForms,
-            'fields' => $fields,
+            'branchingFields' => $branchingFields,
+            'formMetadata' => $formMetadata,
             'dataDictionary' => $formattedDataDictionary,
             'formRights' => $formRights,
             'redcapData' => $redcapData,
             'recordLabel' => $recordLabel,
             'projectId' => PROJECT_ID,
             'eventId' => $eventId,
-            'selectedRecordId' => $selectedRecord,
+            'selectedRecordId' => $recordId,
             'requestUrl' => $this->getUrl('requestHandler.php'),
             'commentCounts' => $commentCounts,
             'lastRequestData' => array(),
             'loggedInUser' => USERID,
+            'redcapVersionUrl' => (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . SERVER_NAME . APP_PATH_WEBROOT,
+            'newAlertsSupported' => \REDCap::versionCompare(REDCAP_VERSION, '9.7.3', 'ge'),
             'config' => array(
                 'commentButtons' => $this->getProjectSetting('comment-buttons-enabled'),
                 'copyButtons' => $this->getProjectSetting('copy-buttons-enabled'),
@@ -159,6 +238,8 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
         ?>
         <script>
             UIOWA_EasyEdit = Object.assign(UIOWA_EasyEdit, <?= json_encode($jsObject) ?>);
+
+            document.title = UIOWA_EasyEdit.projectTitle + ' - Easy Edit';
         </script>
         <?php
     }
@@ -215,7 +296,7 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 //            $formattedData[$record_id] = $record[$eventId];
 //        }
 
-        error_log(print_r(json_encode($formattedData), JSON_PRETTY_PRINT));
+//        error_log(print_r(json_encode($formattedData), JSON_PRETTY_PRINT));
 
 
         return json_encode(\REDCap::saveData('json', json_encode($formattedData)));
@@ -307,5 +388,16 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
         else {
             return ('something went wrong');
         }
+    }
+
+    public function getRecordId() {
+        $rights = \REDCap::getUserRights(USERID);
+
+        // Check if the user is in a data access group (DAG)
+        $group_id = $rights[USERID]['group_id'];
+
+        $records = \Records::getRecordList(PROJECT_ID, $group_id);
+
+        return reset($records); //todo test with DAG
     }
 }

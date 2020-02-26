@@ -50,10 +50,10 @@ $module->initializeVariables();
 <!--                <button class="btn btn-primary save-button" style="float: right">-->
 <!--                    <i class="fas fa-save"></i>-->
 <!--                </button>-->
-                <button class="btn btn-primary edit-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                <button class="btn btn-primary edit-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-edit fa-fw"></i>
                 </button>
-                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-times fa-fw"></i>
                 </button>
             </div>
@@ -109,7 +109,7 @@ $module->initializeVariables();
                             <button v-if="config['historyButtons']" class="btn btn-warning history-button" :data-edit="field + repeatSuffix(index)" :data-instance="index">
                                 <i class="fas fa-history fa-fw"></i>
                             </button>
-                            <button class="btn btn-primary show-comments" :data-edit="field + repeatSuffix(index)" :data-instance="index" v-if="getFormRights(name) != 2">
+                            <button class="btn btn-primary show-comments" :data-edit="field + repeatSuffix(index)" :data-instance="index" v-if="getFormRights(name) != 2 && config['commentButtons']"">
                                 <i class="far fa-comment fa-fw"></i>
                                 <span class="badge badge-light comment-count"></span>
                             </button>
@@ -211,26 +211,23 @@ $module->initializeVariables();
                 </div>
             </div>
             <div style="text-align: center">
-                <button class="btn btn-primary edit-button edit-collapse" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                <button class="btn btn-primary edit-button edit-collapse" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-edit fa-fw"></i><span> Edit</span>
                 </button>
-                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name + (index ? repeatSuffix(index) : '')">
+                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-times fa-fw"></i><span> Discard Changes</span>
                 </button>
             </div>
         </div>
     </div>
 </script>
-<h5 id="saveStatus">
-    <div id="saveMsg" class="badge badge-success">
-        <i class="fas fa-check"></i> All changes saved
-    </div>
-</h5>
 <div id="app">
     <div v-cloak>
-        <h2 style="text-align: center; color: #106CD6; font-weight: bold; padding-bottom: 20px">
-            {{ projectTitle }}
-        </h2>
+        <a :href="redcapVersionUrl + 'ProjectSetup/index.php?pid=' + projectId" target="_blank">
+            <h2 style="text-align: center; color: #106CD6; font-weight: bold; padding-bottom: 20px">
+                {{ projectTitle }}
+            </h2>
+        </a>
 
         <div style="text-align: center">
             <label for="recordSelect">Viewing Record</label>
@@ -263,6 +260,7 @@ $module->initializeVariables();
                     :name="formName"
                     :label="formLabel"
                     :complete="redcapData[selectedRecordId][eventId][formName + '_complete']"
+                    :survey="formMetadata[formName]['survey']"
                 ></card-header>
                 <div
                     v-if="isRepeatingForm(formName)"
@@ -283,7 +281,7 @@ $module->initializeVariables();
                                     :index="repeatIndex"
                                     :record="recordData"
                                     :name="formName"
-                                    :label="repeatingForms[formName]"
+                                    :label="repeatingForms[formName] || 'Instance #' + repeatIndex"
                                     :complete="recordData[formName + '_complete']"
                                 ></card-header>
                                 <card-collapse
@@ -291,13 +289,13 @@ $module->initializeVariables();
                                     :index="repeatIndex"
                                     :name="formName"
                                     :label="formLabel"
-                                    :fields="fields[formName]"
+                                    :fields="formMetadata[formName]['fields']"
                                     :dictionary="dataDictionary"
                                     :config="config"
                                 ></card-collapse>
                             </div>
                             <div style="float: right; margin: 20px;">
-                                <button class="btn btn-primary add-repeat-instance" :data-add="formName">
+                                <button class="btn btn-primary edit-button add-new-instance" :data-edit="formName">
                                     <i class="fas fa-plus"></i>
                                     Add New
                                 </button>
@@ -309,7 +307,7 @@ $module->initializeVariables();
                     :record="redcapData[selectedRecordId][eventId]"
                     :name="formName"
                     :label="formLabel"
-                    :fields="fields[formName]"
+                    :fields="formMetadata[formName]['fields']"
                     :dictionary="dataDictionary"
                     :config="config"
                 ></card-collapse>
@@ -381,6 +379,28 @@ $module->initializeVariables();
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="surveyModal" class="modal" tabindex="-1" role="dialog">
+            <div class="modal-dialog modal-lg" role="document" style="height: 80%">
+                <div class="modal-content" style="height: 100%">
+                    <div class="modal-body">
+                        <iframe name="surveyIframe" src="" width="100%" height="99%"></iframe>
+                    </div>
+                    <div class="modal-footer">
+                        <div class="btn-group mr-auto">
+                            <button type="button" class="btn btn-danger dropdown-toggle form-status" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                Incomplete
+                            </button>
+                            <div class="dropdown-menu">
+                                <a class="dropdown-item change-status" href="#" data-id="0" data-status="Incomplete" data-class="btn-danger">Mark form as Incomplete</a>
+                                <a class="dropdown-item change-status" href="#" data-id="1" data-status="Unverified" data-class="btn-warning">Mark form as Unverified</a>
+                                <a class="dropdown-item change-status" href="#" data-id="2" data-status="Complete" data-class="btn-success">Mark form as Complete</a>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-danger cancel-button">Cancel</button>
                     </div>
                 </div>
             </div>
