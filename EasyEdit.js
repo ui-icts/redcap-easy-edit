@@ -203,7 +203,8 @@ $(document).ready(function() {
             'label',
             'record',
             'complete',
-            'survey'
+            'survey',
+            'modifycompleted'
         ],
         template: '#cardHeader',
         mixins: [mixin]
@@ -291,6 +292,10 @@ $(document).ready(function() {
     //     editButton.attr('data-clipboard-text', $('option:selected', select).text());
     // });
 
+    // todo need survey settings for reference
+    // if no save and return + complete, show checkmark
+
+
     // get comment counts to display on buttons
     $.each(UIOWA_EasyEdit.commentCounts, function (key, count) {
         var $commentButton = $('.show-comments[data-edit=' + key + ']');
@@ -357,7 +362,12 @@ $(document).ready(function() {
 
             if (!UIOWA_EasyEdit.surveyOpen) {
                 $('#surveyModal').modal({backdrop: 'static', keyboard: false});
-                UIOWA_EasyEdit.surveyOpen = true;
+
+                // store form and index on status button for later
+                UIOWA_EasyEdit.surveyOpen = {
+                    'form': form,
+                    'index': repeatIndex
+                };
             }
         });
 
@@ -365,7 +375,7 @@ $(document).ready(function() {
         // window.location.href = surveyLink + '&edit=' + UIOWA_EasyEdit.selectedRecordId;
     });
 
-    $('.cancel-button').on('click', function (e) {
+    $('.cancel-button').click(function () {
         var closeSurvey = function () {
             // enable edit buttons and add instance buttons until saved
             $('.edit-button').prop('disabled', '');
@@ -400,7 +410,7 @@ $(document).ready(function() {
         // UIOWA_EasyEdit.toggleEdit($(this).data('edit'), false);
     });
 
-    $('.show-comments').on('click', function (e) {
+    $('.show-comments').click(function () {
         UIOWA_EasyEdit.selectedField = $(this).data('edit');
 
         var instance = $(this).data('instance') || 1;
@@ -418,13 +428,20 @@ $(document).ready(function() {
             .done(function(result) {
                 UIOWA_EasyEdit.lastRequestData = JSON.parse(result);
 
-                $.each(UIOWA_EasyEdit.lastRequestData, function () {
+                // todo still need this?
+                // $.each(UIOWA_EasyEdit.lastRequestData, function () {
+                //
+                //     // this.comment = $.text(this.comment);
+                // });
 
-                    this.comment = $.text(this.comment);
-                });
+                var count = UIOWA_EasyEdit.lastRequestData.length - 1;
 
-                if (UIOWA_EasyEdit.lastRequestData.length > UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField]) {
-                    UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField] = UIOWA_EasyEdit.lastRequestData.length;
+                if (count > UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField]) {
+                    UIOWA_EasyEdit.commentCounts[UIOWA_EasyEdit.selectedField] = count;
+
+                    $('.show-comments[data-edit=' + UIOWA_EasyEdit.selectedField + ']')
+                        .find('.comment-count')
+                        .html(count);
                 }
 
                 app.$forceUpdate();
@@ -433,14 +450,22 @@ $(document).ready(function() {
             })
     });
 
-    $('.download-button').on('click', function (e) {
-        var fieldName = $(this).data('edit');
-        var $fieldContent = $('#edit-' + fieldName);
+    $('.download-button').click(function () {
+        var fileLink = $(this).data('link');
 
-        UIOWA_EasyEdit.generateWordDoc($fieldContent.val(), fieldName);
+        if (fileLink) {
+            window.location.href = fileLink;
+        }
+        else {
+            var fieldName = $(this).data('edit');
+            var $fieldContent = $('#edit-' + fieldName);
+
+            UIOWA_EasyEdit.generateWordDoc($fieldContent.val(), fieldName);
+        }
+
     });
 
-    $('.history-button').on('click', function (e) {
+    $('.history-button').click(function () {
         UIOWA_EasyEdit.selectedField = $(this).data('edit');
 
         var instance = $(this).data('instance');
@@ -463,13 +488,22 @@ $(document).ready(function() {
             })
     });
 
+    // todo save this
     $('.change-status').click(function () {
-        $('.form-status')
+        var $formStatus = $('.form-status');
+        var statusId = $(this).data('id');
+
+        $formStatus
             .removeClass (function (index, className) {
                 return (className.match (/(^|\s)btn-\S+/g) || []).join(' ');
             })
             .addClass($(this).data('class'))
             .html($(this).data('status'));
+
+        UIOWA_EasyEdit.redcapData
+            [UIOWA_EasyEdit.selectedRecordId]
+            [UIOWA_EasyEdit.eventId]
+            [UIOWA_EasyEdit.surveyOpen['form'] + '_complete'] = statusId.toString();
     });
 
     // initial update of edit buttons for radio/checkboxes

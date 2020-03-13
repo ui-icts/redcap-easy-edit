@@ -10,32 +10,25 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 
         ?>
         <script>
-            // $('button[name="submit-btn-savereturnlater"]').hide();
+            var $saveButton = $('button[name="submit-btn-saverecord"]');
+            var $saveReturnButton = $('button[name="submit-btn-savereturnlater"]');
 
-            $('button[name="submit-btn-savereturnlater"]').click(function() {
+            if ($saveReturnButton.length > 0) {
+                $saveButton.hide();
+                $saveReturnButton
+                    .css({
+                        'color': '#800000',
+                        'width': '100%',
+                        'max-width': '140px'
+                    })
+                    .html('Submit');
+
+                $saveButton = $saveReturnButton;
+            }
+
+            $saveButton.click(function() {
                 window.parent.location.reload();
-
             });
-        </script>
-        <?php
-    }
-
-    public function redcap_survey_complete ($project_id, $record, $instrument, $event_id, $group_id, $survey_hash, $response_id, $repeat_instance) {
-//        if ($_GET['edit'] = 1) { //todo possible conflict?
-//            header('Location: ' . $this->getUrl('index.php?record=' . $_GET['edit']));
-//        }
-
-//        sleep(1);
-        error_log(json_encode($_POST));
-
-//        $data[$instrument . '_complete'] = 1;
-//
-//        if ($this->saveData($project_id, $record, $event_id, $data)) {
-//
-//        }
-        ?>
-        <script>
-            window.parent.location.reload();
         </script>
         <?php
     }
@@ -72,46 +65,114 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             $recordId = $this->getRecordId();
         }
 
+        // todo support longitudinal? (multiple event_id)
         $sql = "SELECT event_id FROM redcap_data WHERE project_id = $pid LIMIT 1";
         $result = db_query($sql);
         $eventId = db_fetch_assoc($result)['event_id'];
 
+        // get names of repeatable forms
         $sql = "SELECT form_name, custom_repeat_form_label FROM redcap_events_repeat WHERE event_id = $eventId";
         $result = db_query($sql);
         $repeatingForms = array();
-
         while ($row = db_fetch_assoc($result)) {
             $repeatingForms[$row['form_name']] = $row['custom_repeat_form_label'];
         }
 
+        // get record labels for "Viewing Record" display
         $sql = "SELECT custom_record_label FROM redcap_projects WHERE project_id = $pid LIMIT 1";
         $result = db_query($sql);
         $recordLabel = trim(db_fetch_assoc($result)['custom_record_label'],'[]');
 
+        // get user rights to show/hide forms based on access
         $userRights = \REDCap::getUserRights(USERID)[USERID];
-
         $formRights = $userRights['forms'];
 
+        // get project metadata
         $dataDictionary = \REDCap::getDataDictionary($pid, 'array');
-        $formattedDataDictionary = array();
-
         $instruments = \REDCap::getInstrumentNames();
 
+        // get record data
         $redcapData = \REDCap::getData(array(
             'records' => $recordId,
-            'groups' => $userRights['group_id'],
-            'exportAsLabels' => true
+            'groups' => $userRights['group_id']
         ));
 
+        $formattedDataDictionary = array();
         $repeatSurveys = array();
         $formMetadata = array();
         $branchingFields = array();
+        $fileFields = array();
 
+        // make some edits to data dictionary
+        foreach ($dataDictionary as $key => $value) {
+            if (in_array($value['field_type'], ['dropdown', 'checkbox', 'radio'])) {
+                $value['select_choices_or_calculations'] = $this->getChoiceLabels($value['field_name']);
+            }
+            else if ($value['field_type'] == 'yesno') {
+                $value['select_choices_or_calculations'] = array('1' => 'Yes', '0' => 'No');
+                $value['field_type'] = 'radio';
+            }
+            else if ($value['field_type'] == 'truefalse') {
+                $value['select_choices_or_calculations'] = array('1' => 'True', '0' => 'False');
+                $value['field_type'] = 'radio';
+            }
+            else if ($value['field_type'] == 'file') {
+                array_push($fileFields, $value['field_name']);
+            }
+
+            if ($value['branching_logic'] !== '') {
+                $branchingFields[$key] = $value['branching_logic'];
+            }
+
+            $actionTags = array();
+
+            if (\Form::hasHiddenOrHiddenSurveyActionTag($value['field_annotation'])) {
+                $actionTags['hidden'] = true;
+            }
+
+            $formattedDataDictionary[$key]['action_tags'] = $actionTags;
+
+            $formattedDataDictionary[$key] = $value;
+        }
+
+        // update top level data
+        foreach ($redcapData[$recordId][$eventId] as $field => $value) {
+            if (in_array($field, $fileFields)) {
+                $redcapData[$recordId][$eventId][$field] = $this->getFileUploadDetails($value, $pid, $recordId, $eventId, $field);
+            }
+
+            if (in_array($field, $branchingFields)) {
+                $visible = \REDCap::evaluateLogic($branchingFields[$field], $pid, $recordId);
+
+                if (!$visible) {
+                    $redcapData[$recordId][$eventId][$field] = false;
+                }
+            }
+        }
+
+        // todo could call for dynamic branching?
+//        error_log(json_encode(getDependentFields(array_keys($dataDictionary))));
+
+        // update repeatable instrument data
         foreach ($redcapData[$recordId]['repeat_instances'][$eventId] as $formName => $instances) {
             $surveys = array();
             $lastRepeatIndex = 1;
 
             foreach ($instances as $repeatIndex => $data) {
+                foreach ($data as $field => $value) {
+                    if (in_array($field, $fileFields)) {
+                        $redcapData[$recordId]['repeat_instances'][$eventId][$formName][$repeatIndex][$field] = $this->getFileUploadDetails($value, $pid, $recordId, $eventId, $field, $repeatIndex);
+                    }
+
+                    if (in_array($field, $branchingFields)) {
+                        $visible = \REDCap::evaluateLogic($branchingFields[$field], $pid, $recordId);
+
+                        if (!$visible) {
+                            $redcapData[$recordId]['repeat_instances'][$eventId][$formName][$repeatIndex][$field] = false;
+                        }
+                    }
+                }
+
                 $surveys[$repeatIndex] = \REDCap::getSurveyLink($recordId, $formName, $eventId, $repeatIndex);
 
                 $lastRepeatIndex = $repeatIndex;
@@ -127,6 +188,14 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             $repeatSurveys[$formName] = $surveys;
         }
 
+        // get survey settings
+        $surveySettings = array();
+        $sql = "select form_name, edit_completed_response from redcap_surveys where project_id = $pid";
+        $result = db_query($sql);
+        while ($row = db_fetch_assoc($result)) {
+            $surveySettings[$row['form_name']] = $row['edit_completed_response'];
+        }
+
         foreach ($instruments as $uniqueName => $label) {
             if (array_key_exists($uniqueName, $repeatSurveys)) {
                 $formSurvey = $repeatSurveys[$uniqueName];
@@ -137,9 +206,11 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 
             $formMetadata[$uniqueName] = array(
                 'fields' => \REDCap::getFieldNames($uniqueName),
-                'survey' => $formSurvey
+                'survey' => $formSurvey,
+                'modifyCompleted' => $surveySettings[$uniqueName]
             );
 
+            //todo keep this with weird survey statuses?
 //            $formattedDataDictionary[$uniqueName . '_complete'] = array(
 //                "field_name" => $uniqueName . "_complete",
 //                "field_type" => "status",
@@ -149,39 +220,8 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 //            );
         }
 
-        foreach ($dataDictionary as $key => $value) {
-            if (in_array($value['field_type'], ['dropdown', 'checkbox', 'radio'])) {
-                $value['select_choices_or_calculations'] = $this->getChoiceLabels($value['field_name']);
-            }
-            else if ($value['field_type'] == 'yesno') {
-                $value['select_choices_or_calculations'] = array('1' => 'Yes', '0' => 'No');
-                $value['field_type'] = 'radio';
-            }
-            else if ($value['field_type'] == 'truefalse') {
-                $value['select_choices_or_calculations'] = array('1' => 'True', '0' => 'False');
-                $value['field_type'] = 'radio';
-            }
-
-            if ($value['branching_logic'] !== '') {
-                $branchingFields[$key] = $value['branching_logic'];
-            }
-
-            $formattedDataDictionary[$value['field_name']] = $value;
-        }
-
-        // remove fields hidden by branching logic
-        foreach ($branchingFields as $field => $logic) {
-            if (array_key_exists($field, $redcapData[$recordId][$eventId])) {
-                $branchingFields[$field] = \LogicTester::apply(
-                    $dataDictionary[$field]['branching_logic'],
-                    $redcapData[$recordId][$eventId]
-                );
-            }
-        }
-
+        // get initial comment counts
         $commentCounts = array();
-
-        // todo still need to get counts here
         if ($this->getProjectSetting('comment-buttons-enabled')) {
             $repeatLookup = array();
             foreach ($repeatingForms as $form) {
@@ -206,6 +246,7 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             }
         }
 
+        // make data/config/etc available client-side
         $jsObject = array(
             'projectTitle' => \REDCap::getProjectTitle(),
             'instruments' => $instruments,
@@ -231,8 +272,7 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
                 'downloadButtons' => $this->getProjectSetting('download-buttons-enabled'),
                 'historyButtons' => $this->getProjectSetting('history-buttons-enabled')
             )
-//            'logicTesterExample' => \LogicTester::apply('[core] = 2', $redcapData[$selectedRecord]),
-//            'jsExample' => (new \Calculate)->exportJS()
+//            'logicTesterExample' => \LogicTester::apply('[core] = 2', $redcapData[$selectedRecord])
         )
 
         ?>
@@ -244,77 +284,78 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
         <?php
     }
 
-    public function saveRedcapData($pid, $data)
-    {
-        $sql = "SELECT event_id FROM redcap_data WHERE project_id = $pid LIMIT 1";
-        $result = db_query($sql);
-        $eventId = db_fetch_assoc($result)['event_id'];
-
-        $data = json_decode($data, true);
-        $formattedData = array();
-
-        foreach ($data as $recordId => $recordData) {
-//            $recordData[$eventId]['record_id'] = $recordId;
-            $recordData[$eventId] = $this->formatCheckboxFields($recordData[$eventId]);
-
-            array_push($formattedData, $recordData[$eventId]);
-
-            if (isset($recordData['repeat_instances'])) {
-                foreach ($recordData['repeat_instances'][$eventId] as $key => $instances) {
-                    foreach ($instances as $index => $instanceData) {
-                        $formattedInstance = array(
-                            'redcap_repeat_instrument' => $key,
-                            'redcap_repeat_instance' => $index
-                        );
-
-                        $formattedInstance = array_merge($formattedInstance, $instanceData);
-                        $formattedInstance = $this->formatCheckboxFields($formattedInstance);
-                        $formattedInstance['record_id'] = $recordId;
-
-                        array_push($formattedData, $formattedInstance);
-                    }
-                }
-            }
-        }
-
-        // Get list of fields user should NOT be able to edit
-//        $userRights = \REDCap::getUserRights(USERID)[USERID];
-//        $formRights = $userRights['forms'];
-//        $restrictedInstruments = array_keys(
-//            array_filter($formRights, function($value) {
-//                return $value == '0' || $value == '2';
-//            })
-//        );
-
-//        $restrictedFields =
-
-////
+    // not required after switch to surveys
+//    public function saveRedcapData($pid, $data)
+//    {
+//        $sql = "SELECT event_id FROM redcap_data WHERE project_id = $pid LIMIT 1";
+//        $result = db_query($sql);
+//        $eventId = db_fetch_assoc($result)['event_id'];
+//
+//        $data = json_decode($data, true);
 //        $formattedData = array();
 //
-//        foreach ($data as $record_id => $record) {
-//            error_log($record_id);
-//            $formattedData[$record_id] = $record[$eventId];
+//        foreach ($data as $recordId => $recordData) {
+////            $recordData[$eventId]['record_id'] = $recordId;
+//            $recordData[$eventId] = $this->formatCheckboxFields($recordData[$eventId]);
+//
+//            array_push($formattedData, $recordData[$eventId]);
+//
+//            if (isset($recordData['repeat_instances'])) {
+//                foreach ($recordData['repeat_instances'][$eventId] as $key => $instances) {
+//                    foreach ($instances as $index => $instanceData) {
+//                        $formattedInstance = array(
+//                            'redcap_repeat_instrument' => $key,
+//                            'redcap_repeat_instance' => $index
+//                        );
+//
+//                        $formattedInstance = array_merge($formattedInstance, $instanceData);
+//                        $formattedInstance = $this->formatCheckboxFields($formattedInstance);
+//                        $formattedInstance['record_id'] = $recordId;
+//
+//                        array_push($formattedData, $formattedInstance);
+//                    }
+//                }
+//            }
 //        }
+//
+//        // Get list of fields user should NOT be able to edit
+////        $userRights = \REDCap::getUserRights(USERID)[USERID];
+////        $formRights = $userRights['forms'];
+////        $restrictedInstruments = array_keys(
+////            array_filter($formRights, function($value) {
+////                return $value == '0' || $value == '2';
+////            })
+////        );
+//
+////        $restrictedFields =
+//
+//////
+////        $formattedData = array();
+////
+////        foreach ($data as $record_id => $record) {
+////            error_log($record_id);
+////            $formattedData[$record_id] = $record[$eventId];
+////        }
+//
+////        error_log(print_r(json_encode($formattedData), JSON_PRETTY_PRINT));
+//
+//
+//        return json_encode(\REDCap::saveData('json', json_encode($formattedData)));
+//    }
 
-//        error_log(print_r(json_encode($formattedData), JSON_PRETTY_PRINT));
-
-
-        return json_encode(\REDCap::saveData('json', json_encode($formattedData)));
-    }
-
-    public function formatCheckboxFields($recordData) {
-        foreach($recordData as $field => $value) {
-            if (gettype($value) == 'array') {
-                foreach ($value as $code => $choice) {
-                    $recordData[$field . '___' . $code] = $choice;
-                }
-
-                unset($recordData[$field]);
-            }
-        }
-
-        return $recordData;
-    }
+//    public function formatCheckboxFields($recordData) {
+//        foreach($recordData as $field => $value) {
+//            if (gettype($value) == 'array') {
+//                foreach ($value as $code => $choice) {
+//                    $recordData[$field . '___' . $code] = $choice;
+//                }
+//
+//                unset($recordData[$field]);
+//            }
+//        }
+//
+//        return $recordData;
+//    }
 
     public function getFieldComments($pid, $selectedRecord, $field, $instance) {
         $sql = "select ts, username, comment from redcap_data_quality_resolutions as rdqr
@@ -330,6 +371,7 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
             array_push($comments, $row);
         }
 
+        // add blank comment with current time for user input
         array_push($comments, array(
                 'ts' => NOW,
                 'username' => USERID,
@@ -340,10 +382,11 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
     }
 
     public function submitFieldComment($record, $field, $event_id, $instance, $comment) {
-//        $record = 1;
-//        $field = 'core';
-//        $event_id = 40;
-//        $instance = 1;
+        $record = 1;
+        $field = 'core';
+        $event_id = 163;
+        $instance = 1;
+        $comment = 'test friday';
 
         $sql = "
             insert into redcap_data_quality_status (
@@ -362,6 +405,8 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
                 '".db_escape($instance)."'
             )
 			on duplicate key update query_status = null, status_id = LAST_INSERT_ID(status_id)";
+
+        error_log($sql);
 
         if (db_query($sql)) {
             // Get cleaner_id
@@ -383,11 +428,36 @@ class EasyEdit extends \ExternalModules\AbstractExternalModule {
 				".checkNull(trim(label_decode($comment)))."
             )";
 
+            error_log($sql);
+
             return $sql;
         }
         else {
             return ('something went wrong');
         }
+    }
+
+    public function getFileUploadDetails($docId, $pid, $recordId, $eventId, $field, $instance=1) {
+        $hash = \Files::docIdHash($docId);
+
+        $link = APP_PATH_WEBROOT .
+            "DataEntry/file_download.php" .
+            "?pid=$pid" .
+            "&doc_id_hash=$hash" .
+            "&id=$docId" .
+            "&record=$recordId" .
+            "&event_id=$eventId" .
+            "&field_name=$field" .
+            "&instance=$instance";
+
+        $sql = "select doc_name from redcap_edocs_metadata where doc_id = $docId";
+        $result = db_query($sql);
+        $docName = db_fetch_assoc($result)['doc_name'];
+
+        return array(
+            'filename' => $docName,
+            'link' => $link
+        );
     }
 
     public function getRecordId() {

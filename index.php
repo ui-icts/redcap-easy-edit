@@ -50,8 +50,8 @@ $module->initializeVariables();
 <!--                <button class="btn btn-primary save-button" style="float: right">-->
 <!--                    <i class="fas fa-save"></i>-->
 <!--                </button>-->
-                <button class="btn btn-primary edit-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
-                    <i class="fas fa-edit fa-fw"></i>
+                <button class="btn edit-button" :class="complete === '2' && modifycompleted === '0' ? 'btn-success' : 'btn-primary'" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index" :disabled="complete === '2' && modifycompleted === '0'">
+                    <i class="fas fa-fw" :class="complete === '2' && modifycompleted === '0' ? 'fa-check' : 'fa-edit'"></i>
                 </button>
                 <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-times fa-fw"></i>
@@ -87,7 +87,7 @@ $module->initializeVariables();
                         </div>
                     </div>
                 </div>
-                <div v-else>
+                <div v-else-if="!(record[field] === false)">
                     <div v-if="dictionary[field]['section_header'] !== ''" class="section-header border rounded">
                         <div :id="'section_header-' + field + repeatSuffix(index)" v-html="formatText(dictionary[field]['section_header'], record)"></div>
                     </div>
@@ -194,13 +194,23 @@ $module->initializeVariables();
                             </div>
                         </div>
                         <div v-else-if="dictionary[field]['field_type'] == 'file'" class="field-content">
-                            <div :id="'edit-' + field + repeatSuffix(index)">
-                                <input type="hidden" name="test" value="">
-                                <a target="_blank" class="filedownloadlink" name="test" tabindex="0" href="/redcap/redcap_v9.3.0/DataEntry/file_download.php?pid=13&amp;doc_id_hash=1f0c8c24527ec7bbf6bc8d1615fe85d2051e2a2c&amp;id=10&amp;s=&amp;record=1&amp;page=reporting&amp;event_id=40&amp;field_name=test&amp;instance=1" onclick="return appendRespHash('test');" id="test-link" style="text-align: right; font-weight: normal; display: none; text-decoration: underline; margin: 0px 10px; position: relative;">NLP_communication (1).docx (0.03 MB)</a>
-                                <div style="font-weight:normal;margin:10px 5px 0 0;position:relative;text-align:right;" id="test-linknew">
-                                    <a href="javascript:;" class="fileuploadlink" onclick="filePopUp('test',0,0);return false;">
-                                        <i class="fas fa-upload mr-1 fs12"></i>Upload file
-                                    </a>
+                            <div :id="'edit-' + field + repeatSuffix(index)" class="input-group mb-3">
+                                <div class="input-group-prepend">
+                                    <span class="input-group-text"><i :class="record[field]['filename'] ? 'fas fa-file' : 'far fa-file'"></i></span>
+                                </div>
+                                <input
+                                    :id="'edit-' + field + repeatSuffix(index)"
+                                    :data-name="field + repeatSuffix(index)"
+                                    v-model="record[field]['filename']"
+                                    class="form-control"
+                                    :class="{locked: field == 'record_id'}"
+                                    type="text"
+                                    readonly="readonly"
+                                    style="width: 80%"
+                                    placeholder="No File Uploaded"
+                                >
+                                <div v-if="record[field]['filename']" class="input-group-append">
+                                    <button class="btn btn-success download-button" type="button" :data-link="record[field]['link']">Download</button>
                                 </div>
                             </div>
                         </div>
@@ -213,9 +223,6 @@ $module->initializeVariables();
             <div style="text-align: center">
                 <button class="btn btn-primary edit-button edit-collapse" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
                     <i class="fas fa-edit fa-fw"></i><span> Edit</span>
-                </button>
-                <button style="display: none" class="btn btn-danger cancel-button" v-if="!isRepeatingForm(name) || index" :data-edit="name" :data-repeat-index="index">
-                    <i class="fas fa-times fa-fw"></i><span> Discard Changes</span>
                 </button>
             </div>
         </div>
@@ -261,6 +268,7 @@ $module->initializeVariables();
                     :label="formLabel"
                     :complete="redcapData[selectedRecordId][eventId][formName + '_complete']"
                     :survey="formMetadata[formName]['survey']"
+                    :modifycompleted="formMetadata[formName]['modifyCompleted']"
                 ></card-header>
                 <div
                     v-if="isRepeatingForm(formName)"
@@ -283,6 +291,7 @@ $module->initializeVariables();
                                     :name="formName"
                                     :label="repeatingForms[formName] || 'Instance #' + repeatIndex"
                                     :complete="recordData[formName + '_complete']"
+                                    :modifycompleted="formMetadata[formName]['modifyCompleted']"
                                 ></card-header>
                                 <card-collapse
                                     :record="recordData"
@@ -394,7 +403,7 @@ $module->initializeVariables();
                             <button type="button" class="btn btn-danger dropdown-toggle form-status" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                                 Incomplete
                             </button>
-                            <div class="dropdown-menu">
+                            <div class="dropdown-menu status-button" data-form="" data-index="">
                                 <a class="dropdown-item change-status" href="#" data-id="0" data-status="Incomplete" data-class="btn-danger">Mark form as Incomplete</a>
                                 <a class="dropdown-item change-status" href="#" data-id="1" data-status="Unverified" data-class="btn-warning">Mark form as Unverified</a>
                                 <a class="dropdown-item change-status" href="#" data-id="2" data-status="Complete" data-class="btn-success">Mark form as Complete</a>
